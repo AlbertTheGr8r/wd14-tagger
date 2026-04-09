@@ -1,0 +1,17 @@
+[project]
+name = "wd14-tagger"
+version = "0.1.0"
+description = "WD14 Tagger - Generate Danbooru-style tags for images"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy",
+    "pillow",
+    "onnxruntime-gpu",
+    "huggingface-hub",
+    "pandas",
+    "tqdm",
+    "pytest",
+]
+
+[project.scripts]
+wd14-tagger = "main:main"
