@@ -30,12 +30,12 @@ Download from https://exiftool.org/
 
 ## Usage
 
-### Step 1: Generate Tags
+### Generate Tags
 
 Tag your images using the WD14 Tagger:
 
 ```bash
-uv run main.py <directory> [options]
+uv run main.py tag <directory> [options]
 ```
 
 **Options:**
@@ -45,23 +45,60 @@ uv run main.py <directory> [options]
 - `--model MODEL` - Model repo (default: SmilingWolf/wd-swinv2-tagger-v3)
 - `--recursive` - Process subdirectories
 
-**Example:**
+**Examples:**
 ```bash
-uv run main.py ./photos --batch-size 6 --recursive
+uv run main.py tag ./photos
+uv run main.py tag ./photos --batch-size 8 --recursive
 ```
 
-### Step 2: Convert to XMP Sidecars
+### Convert to XMP Sidecars
 
 Convert the generated `.txt` files to XMP sidecar files:
 
 ```bash
-python -m src.converter.xmp_writer <directory> [--overwrite]
+cd <directory>
+for f in *.txt; do
+    base="${f%.txt}"
+    exts="jpg jpeg png webp"
+    for ext in $exts; do
+        if [ -f "${base}.${ext}" ]; then
+            tags=$(cat "$f")
+            exiftool -tagsfromfile "${base}.${ext}" -xmp:subject="$tags" -o "${base}.xmp" "${base}.${ext}"
+            break
+        fi
+    done
+done
 ```
 
-Or using ExifTool directly:
+### Cleanup Generated Files
+
+Remove tag files to clean up your directory:
+
 ```bash
-cd <directory>
-exiftool -ext txt -tagsfromfile %d%f.jpg "-xmp:subject<$(cat %d%f.txt)" -o %d%f.xmp .
+uv run main.py clean <directory> [options]
+```
+
+**Options:**
+- `--clean` - Delete `.txt` tag files (default)
+- `--clean-all` - Delete both `.txt` and `.xmp` sidecar files
+- `--prune` - Delete orphaned `.txt`/`.xmp` files (no matching image)
+- `--recursive` - Clean subdirectories
+- `--dry-run` - Preview what would be deleted (default)
+- `--force` - Skip confirmation prompt
+
+**Examples:**
+```bash
+# Preview what would be deleted
+uv run main.py clean ./photos --dry-run
+
+# Delete .txt files (with confirmation)
+uv run main.py clean ./photos
+
+# Delete both .txt and .xmp (skip confirmation)
+uv run main.py clean ./photos --clean-all --force
+
+# Delete orphaned files
+uv run main.py clean ./photos --prune --force
 ```
 
 ## Threshold Guide
@@ -90,27 +127,36 @@ For RTX 4060 (8GB): Use `wd-swinv2-tagger-v3` with batch size 6-8.
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ STEP 1: Tag Images                                         │
-│ uv run main.py ./photos                                    │
+│ uv run main.py tag ./photos                                 │
 │                                                             │
-│ Input:  photos/*.jpg, *.png, *.webp                       │
+│ Input:  photos/*.jpg, *.png, *.webp                        │
 │ Output: photos/*.txt (non-destructive)                     │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
 │ STEP 2: Create XMP Sidecars                                │
-│ python -m src.converter.xmp_writer ./photos                 │
+│ (See conversion command above)                             │
 │                                                             │
 │ Input:  photos/*.txt                                        │
 │ Output: photos/*.xmp (new files, originals untouched)      │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│ STEP 3: Cleanup (Optional)                                 │
+│ uv run main.py clean ./photos --clean-all --force          │
+│                                                             │
+│ Removes .txt and .xmp files, preserves original images    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ## Safety
 
-- **Step 1**: Only reads images, generates new `.txt` files
-- **Step 2**: Creates new `.xmp` files, original images never modified
-- No overwrites unless explicitly specified with `--overwrite`
+- **Tagging**: Only reads images, generates new `.txt` files
+- **XMP Conversion**: Creates new `.xmp` files, original images never modified
+- **Cleanup**: Only deletes `.txt`/`.xmp` files that have matching images (use `--prune` for orphans)
+- **Dry-run default**: Preview mode shows what would be deleted before confirming
 
 ## Testing
 
