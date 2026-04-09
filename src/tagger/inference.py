@@ -4,6 +4,36 @@ from PIL import Image
 from huggingface_hub import hf_hub_download
 import pandas as pd
 from pathlib import Path
+import logging
+import os
+from datetime import datetime
+
+
+def setup_logging():
+    today = datetime.now().strftime("%Y-%m-%d")
+    log_dir = Path(".")
+    log_pattern = "wd14-tagger-{date}.log"
+
+    for i in range(2, 0, -1):
+        old = log_dir / log_pattern.format(date=f"*{i}.log")
+        for f in log_dir.glob(f"wd14-tagger-*.log.{i}"):
+            f.unlink()
+        prev = log_dir / log_pattern.format(date=f"*-{i}.log")
+        if prev.exists():
+            prev.rename(log_dir / f"wd14-tagger-{today}.log.{i}")
+
+    current_log = log_dir / log_pattern.format(date=today)
+    if current_log.exists():
+        current_log.rename(log_dir / f"wd14-tagger-{today}.log.1")
+
+    logging.basicConfig(
+        level=logging.WARNING,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        handlers=[
+            logging.FileHandler(current_log),
+            logging.NullHandler(),
+        ],
+    )
 
 
 class WD14Tagger:
@@ -18,6 +48,9 @@ class WD14Tagger:
         self.device = device
         self.general_threshold = general_threshold
         self.character_threshold = character_threshold
+        self.skipped_count = 0
+
+        setup_logging()
 
         model_path = hf_hub_download(model_repo, "model.onnx")
         label_path = hf_hub_download(model_repo, "selected_tags.csv")
@@ -63,18 +96,27 @@ class WD14Tagger:
         )
 
         results = {}
+        self.skipped_count = 0
+
         for path in image_paths:
-            img = Image.open(path)
-            input_data = self.preprocess(img)
-            probs = self.session.run(None, {self.input_name: input_data})[0][0]
+            try:
+                img = Image.open(path)
+                img.load()
+                input_data = self.preprocess(img)
+                probs = self.session.run(None, {self.input_name: input_data})[0][0]
 
-            found_tags = []
-            for i in self.general_indices:
-                if probs[i] >= gen_thresh:
-                    found_tags.append(self.tag_names[i])
-            for i in self.character_indices:
-                if probs[i] >= char_thresh:
-                    found_tags.append(self.tag_names[i])
+                found_tags = []
+                for i in self.general_indices:
+                    if probs[i] >= gen_thresh:
+                        found_tags.append(self.tag_names[i])
+                for i in self.character_indices:
+                    if probs[i] >= char_thresh:
+                        found_tags.append(self.tag_names[i])
 
-            results[path] = ", ".join(found_tags).replace("_", " ")
+                results[path] = ", ".join(found_tags).replace("_", " ")
+            except Exception as e:
+                logging.warning(f"Skipped {path.name}: {e}")
+                results[path] = ""
+                self.skipped_count += 1
+
         return results

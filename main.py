@@ -59,6 +59,14 @@ def run_tagging(
                 with open(txt_path, "w", encoding="utf-8") as f:
                     f.write(tags)
 
+    skipped = tagger.skipped_count
+    if skipped > 0:
+        print(
+            f"Processing complete. Processed {len(image_paths) - skipped} images, skipped {skipped}."
+        )
+    else:
+        print(f"Processing complete. Processed {len(image_paths)} images.")
+
 
 def run_cleanup(
     target_dir: str,
@@ -156,28 +164,26 @@ if __name__ == "__main__":
         print_help()
         sys.exit(0)
 
-    if sys.argv[1] == "clean":
-        command = "clean"
+    if sys.argv[1] == "tag":
+        command = "tag"
         if len(sys.argv) < 3:
-            print("Error: Directory path required for clean command")
+            print("Error: Directory path required")
             sys.exit(1)
         target_dir = sys.argv[2]
         args = sys.argv[3:]
-    elif sys.argv[1] in ("tag", "help", "-h"):
-        command = "tag"
-        target_dir = (
-            sys.argv[1]
-            if sys.argv[1] == "tag" and len(sys.argv) > 2
-            else (sys.argv[1] if len(sys.argv) > 1 else None)
-        )
-        if not target_dir or target_dir in ("--help", "-h", "help"):
-            print_help()
-            sys.exit(0)
-        args = sys.argv[2:] if sys.argv[1] == "tag" else sys.argv[1:]
+    elif sys.argv[1] == "clean":
+        command = "clean"
+        if len(sys.argv) < 3:
+            print("Error: Directory path required")
+            sys.exit(1)
+        target_dir = sys.argv[2]
+        args = sys.argv[3:]
     else:
-        command = "tag"
-        target_dir = sys.argv[1]
-        args = sys.argv[2:]
+        print("Error: Command required. Use 'tag' or 'clean'.")
+        print("Examples:")
+        print("  uv run main.py tag ./photos")
+        print("  uv run main.py clean ./photos")
+        sys.exit(1)
 
     if command == "tag":
         batch_size = 6
