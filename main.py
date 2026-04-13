@@ -1,10 +1,50 @@
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 from src.tagger.inference import WD14Tagger
+from src.converter.xmp_writer import convert_to_xmp as xmp_convert
 from tqdm import tqdm
 
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".JPG", ".JPEG", ".PNG", ".WEBP"}
+
+
+def check_exiftool():
+    return shutil.which("exiftool") is not None
+
+
+def convert_to_xmp(target_path: Path, recursive: bool = False):
+    return xmp_convert(str(target_path), overwrite=False, recursive=recursive)
+
+
+def cleanup_txt_files(target_path: Path, recursive: bool = False):
+    """Delete .txt tag files."""
+    pattern = "**/*.txt" if recursive else "*.txt"
+    txt_files = list(target_path.glob(pattern))
+    deleted = 0
+    for txt_file in txt_files:
+        try:
+            base_name = txt_file.stem
+            has_image = any(
+                txt_file.with_suffix(ext).exists()
+                for ext in [
+                    ".jpg",
+                    ".jpeg",
+                    ".png",
+                    ".webp",
+                    ".JPG",
+                    ".JPEG",
+                    ".PNG",
+                    ".WEBP",
+                ]
+            )
+            if has_image:
+                txt_file.unlink()
+                deleted += 1
+        except OSError as e:
+            print(f"Skipping {txt_file.name}: {e}")
+    return deleted
 
 
 def run_tagging(
@@ -14,6 +54,7 @@ def run_tagging(
     character_threshold: float = 0.85,
     model_repo: str = "SmilingWolf/wd-swinv2-tagger-v3",
     recursive: bool = False,
+    keep_txt: bool = False,
 ):
     target_path = Path(target_dir)
     if not target_path.exists():
@@ -56,8 +97,11 @@ def run_tagging(
         for path, tags in predictions.items():
             if tags:
                 txt_path = path.with_suffix(".txt")
-                with open(txt_path, "w", encoding="utf-8") as f:
-                    f.write(tags)
+                try:
+                    with open(txt_path, "w", encoding="utf-8") as f:
+                        f.write(tags)
+                except OSError as e:
+                    print(f"Could not write tags for {path.name}: {e}")
 
     skipped = tagger.skipped_count
     if skipped > 0:
@@ -66,6 +110,24 @@ def run_tagging(
         )
     else:
         print(f"Processing complete. Processed {len(image_paths)} images.")
+
+    if check_exiftool():
+        converted = convert_to_xmp(target_path, recursive)
+        if converted > 0:
+            print(f"Created {converted} XMP sidecar files.")
+            if not keep_txt:
+                deleted = cleanup_txt_files(target_path, recursive)
+                print(f"Deleted {deleted} .txt files.")
+        else:
+            print("No .txt files found to convert.")
+    else:
+        print(
+            "XMP sidecar files not generated. exiftool not found.\n"
+            "Install exiftool to enable XMP sidecars:\n"
+            "  - Linux: sudo apt-get install exiftool\n"
+            "  - macOS: brew install exiftool\n"
+            "  - Windows: https://exiftool.org/"
+        )
 
 
 def run_cleanup(
@@ -124,9 +186,34 @@ def run_cleanup(
             return
 
     for f in to_delete:
-        f.unlink()
+        try:
+            f.unlink()
+        except OSError as e:
+            print(f"Could not delete {f.name}: {e}")
 
     print("Cleanup complete.")
+
+
+def run_xmp(target_dir: str, recursive: bool = False, overwrite: bool = False):
+    if not check_exiftool():
+        print("Error: exiftool not found.")
+        print(
+            "Install exiftool to enable XMP sidecar generation:\n"
+            "  - Linux: sudo apt-get install exiftool\n"
+            "  - macOS: brew install exiftool\n"
+            "  - Windows: https://exiftool.org/"
+        )
+        return
+
+    target_path = Path(target_dir)
+    if not target_path.exists():
+        print(f"Error: Directory '{target_dir}' does not exist")
+        return
+
+    converted = xmp_convert(target_dir, overwrite=overwrite, recursive=recursive)
+
+    if converted > 0:
+        print(f"Converted {converted} files to XMP.")
 
 
 def print_help():
@@ -134,6 +221,7 @@ def print_help():
     print("")
     print("Commands:")
     print("  tag                   Generate tags for images (default)")
+    print("  xmp                   Convert existing .txt files to XMP sidecars")
     print("  clean                 Remove generated tag files")
     print("")
     print("Tag Options:")
@@ -144,6 +232,11 @@ def print_help():
         "  --model MODEL         Model repo (default: SmilingWolf/wd-swinv2-tagger-v3)"
     )
     print("  --recursive           Process subdirectories")
+    print("  --txt                 Keep .txt files after XMP conversion")
+    print("")
+    print("XMP Options:")
+    print("  --recursive           Process subdirectories")
+    print("  --overwrite           Overwrite existing XMP files")
     print("")
     print("Clean Options:")
     print("  --clean               Delete .txt tag files (default)")
@@ -155,6 +248,8 @@ def print_help():
     print("")
     print("Examples:")
     print("  uv run main.py tag ./photos --recursive")
+    print("  uv run main.py tag ./photos --txt")
+    print("  uv run main.py xmp ./photos")
     print("  uv run main.py clean ./photos --dry-run")
     print("  uv run main.py clean ./photos --clean-all --force")
 
@@ -171,6 +266,13 @@ if __name__ == "__main__":
             sys.exit(1)
         target_dir = sys.argv[2]
         args = sys.argv[3:]
+    elif sys.argv[1] == "xmp":
+        command = "xmp"
+        if len(sys.argv) < 3:
+            print("Error: Directory path required")
+            sys.exit(1)
+        target_dir = sys.argv[2]
+        args = sys.argv[3:]
     elif sys.argv[1] == "clean":
         command = "clean"
         if len(sys.argv) < 3:
@@ -179,9 +281,10 @@ if __name__ == "__main__":
         target_dir = sys.argv[2]
         args = sys.argv[3:]
     else:
-        print("Error: Command required. Use 'tag' or 'clean'.")
+        print("Error: Command required. Use 'tag', 'xmp', or 'clean'.")
         print("Examples:")
         print("  uv run main.py tag ./photos")
+        print("  uv run main.py xmp ./photos")
         print("  uv run main.py clean ./photos")
         sys.exit(1)
 
@@ -191,6 +294,7 @@ if __name__ == "__main__":
         character_threshold = 0.85
         model_repo = "SmilingWolf/wd-swinv2-tagger-v3"
         recursive = False
+        keep_txt = False
 
         i = 0
         while i < len(args):
@@ -209,6 +313,9 @@ if __name__ == "__main__":
             elif args[i] == "--recursive":
                 recursive = True
                 i += 1
+            elif args[i] == "--txt":
+                keep_txt = True
+                i += 1
             else:
                 i += 1
 
@@ -219,7 +326,25 @@ if __name__ == "__main__":
             character_threshold=character_threshold,
             model_repo=model_repo,
             recursive=recursive,
+            keep_txt=keep_txt,
         )
+
+    elif command == "xmp":
+        recursive = False
+        overwrite = False
+
+        i = 0
+        while i < len(args):
+            if args[i] == "--recursive":
+                recursive = True
+                i += 1
+            elif args[i] == "--overwrite":
+                overwrite = True
+                i += 1
+            else:
+                i += 1
+
+        run_xmp(target_dir, recursive=recursive, overwrite=overwrite)
 
     elif command == "clean":
         recursive = False

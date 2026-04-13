@@ -30,9 +30,9 @@ Download from https://exiftool.org/
 
 ## Usage
 
-### Generate Tags
+### Tag Images
 
-Tag your images using the WD14 Tagger:
+Tag your images and automatically generate XMP sidecars:
 
 ```bash
 uv run main.py tag <directory> [options]
@@ -44,30 +44,39 @@ uv run main.py tag <directory> [options]
 - `--char-thresh N` - Character tag threshold (default: 0.85)
 - `--model MODEL` - Model repo (default: SmilingWolf/wd-swinv2-tagger-v3)
 - `--recursive` - Process subdirectories
+- `--txt` - Keep .txt files after XMP conversion
 
 **Examples:**
 ```bash
+# Tag images (auto-generates XMP, deletes .txt files)
 uv run main.py tag ./photos
-uv run main.py tag ./photos --batch-size 8 --recursive
+
+# Keep .txt files alongside XMP sidecars
+uv run main.py tag ./photos --txt
+
+# Process subdirectories
+uv run main.py tag ./photos --recursive
 ```
 
-### Convert to XMP Sidecars
+### Convert to XMP (Standalone)
 
-Convert the generated `.txt` files to XMP sidecar files:
+Convert existing .txt files to XMP sidecars:
 
 ```bash
-cd <directory>
-for f in *.txt; do
-    base="${f%.txt}"
-    exts="jpg jpeg png webp"
-    for ext in $exts; do
-        if [ -f "${base}.${ext}" ]; then
-            tags=$(cat "$f")
-            exiftool -tagsfromfile "${base}.${ext}" -xmp:subject="$tags" -o "${base}.xmp" "${base}.${ext}"
-            break
-        fi
-    done
-done
+uv run main.py xmp <directory> [options]
+```
+
+**Options:**
+- `--recursive` - Process subdirectories
+- `--overwrite` - Overwrite existing XMP files
+
+**Examples:**
+```bash
+# Convert existing .txt files to XMP
+uv run main.py xmp ./photos
+
+# Overwrite existing XMP files
+uv run main.py xmp ./photos --overwrite
 ```
 
 ### Cleanup Generated Files
@@ -79,9 +88,9 @@ uv run main.py clean <directory> [options]
 ```
 
 **Options:**
-- `--clean` - Delete `.txt` tag files (default)
-- `--clean-all` - Delete both `.txt` and `.xmp` sidecar files
-- `--prune` - Delete orphaned `.txt`/`.xmp` files (no matching image)
+- `--clean` - Delete .txt tag files (default)
+- `--clean-all` - Delete both .txt and .xmp sidecar files
+- `--prune` - Delete orphaned .txt/.xmp files (no matching image)
 - `--recursive` - Clean subdirectories
 - `--dry-run` - Preview what would be deleted (default)
 - `--force` - Skip confirmation prompt
@@ -100,6 +109,31 @@ uv run main.py clean ./photos --clean-all --force
 # Delete orphaned files
 uv run main.py clean ./photos --prune --force
 ```
+
+## Workflow
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ TAG IMAGES                                                  │
+│ uv run main.py tag ./photos                                 │
+│                                                             │
+│ Input:  photos/*.jpg, *.png, *.webp                        │
+│ Output: photos/*.xmp (auto-generated, .txt deleted)        │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│ CLEANUP (Optional)                                         │
+│ uv run main.py clean ./photos --clean-all --force          │
+│                                                             │
+│ Removes .txt and .xmp files, preserves original images    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+If exiftool is not installed, the tagger will:
+- Generate .txt files normally
+- Print a warning about XMP sidecars not being generated
+- Keep the .txt files so you can convert them later
 
 ## Threshold Guide
 
@@ -122,40 +156,11 @@ uv run main.py clean ./photos --prune --force
 
 For RTX 4060 (8GB): Use `wd-swinv2-tagger-v3` with batch size 6-8.
 
-## Workflow
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│ STEP 1: Tag Images                                         │
-│ uv run main.py tag ./photos                                 │
-│                                                             │
-│ Input:  photos/*.jpg, *.png, *.webp                        │
-│ Output: photos/*.txt (non-destructive)                     │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│ STEP 2: Create XMP Sidecars                                │
-│ (See conversion command above)                             │
-│                                                             │
-│ Input:  photos/*.txt                                        │
-│ Output: photos/*.xmp (new files, originals untouched)      │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│ STEP 3: Cleanup (Optional)                                 │
-│ uv run main.py clean ./photos --clean-all --force          │
-│                                                             │
-│ Removes .txt and .xmp files, preserves original images    │
-└─────────────────────────────────────────────────────────────┘
-```
-
 ## Safety
 
-- **Tagging**: Only reads images, generates new `.txt` files
-- **XMP Conversion**: Creates new `.xmp` files, original images never modified
-- **Cleanup**: Only deletes `.txt`/`.xmp` files that have matching images (use `--prune` for orphans)
+- **Tagging**: Only reads images, generates .xmp files automatically
+- **XMP Conversion**: Creates new .xmp files, original images never modified
+- **Cleanup**: Only deletes .txt/.xmp files that have matching images (use --prune for orphans)
 - **Dry-run default**: Preview mode shows what would be deleted before confirming
 
 ## Testing
